@@ -1,0 +1,4 @@
+from .ASVspoof2019_la_train import ASVspoof2019_LA_Train
+from .ASVspoof2019_la_eval import ASVspoof2019_LA_Eval
+from .ASVspoof2021_df_eval import ASVspoof2021_DF_Eval
+from .ASVspoof2021_la_eval import ASVspoof2021_LA_Eval
