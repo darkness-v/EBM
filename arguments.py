@@ -37,7 +37,7 @@ def get_args():
         'attack_type'       : 'LA', 
         'epoch'             : 150,
         'batch_size'        : 40,
-        'rand_seed'		    : 1,
+        'rand_seed'         : 1,
         'ratio_bona'        : 0.1,
         'ratio_spoof'       : 0.9,
 
@@ -60,6 +60,13 @@ def get_args():
         'alpha_cl'          : 5.0,
         'loss_weight'       : [1,1,1,1,1],
         'use_class_weight'  : True,
+
+        # EMA prototype settings
+        'ema_k'             : 1,     # number of bona-fide prototypes
+        'ema_beta'          : 0.995, # EMA momentum
+        'ema_assign'        : 'hard',# 'hard' or 'soft'
+        'ema_tau'           : 10.0,  # temperature for soft assignment
+        'proto_pull_w'      : 0.0,   # weight for prototype pull regularizer
 
         # data processing
         'num_train_frames'  : 404,

@@ -21,7 +21,7 @@ class B_Linear(nn.Module):
         self.loss = loss
         self.loss_bpl = loss_bpl
 
-    def forward(self, x, x_short=None, label=None, bona_size=None):
+    def forward(self, x, x_short=None, label=None, bona_size=None, return_embed: bool = False):
         # Full linear
         x = self.bridge_module(x)
         x = self.AHP_ASP(x)
@@ -39,11 +39,11 @@ class B_Linear(nn.Module):
             if x_short != None and bona_size != None and self.loss_bpl != None:
                 loss_cos = self.loss_bpl(x[:bona_size, :], x_short[:bona_size, :])
 
-                return loss + loss_cos, scores
+                return (loss + loss_cos, scores, x) if return_embed else (loss + loss_cos, scores)
             
-            return loss, scores
+            return (loss, scores, x) if return_embed else (loss, scores)
         
-        return x
+        return (x, None, x) if return_embed else x
     
     
 class Bridge_module(nn.Module):
@@ -172,4 +172,3 @@ class SelfWeightedPooling(nn.Module):
         if get_w:
             return representations, attentions.squeeze(-1)
         return representations
-  

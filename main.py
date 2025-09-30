@@ -117,9 +117,11 @@ def run(process_id, args, experiment_args):
         hidden_size = args['hidden_size'],
         output_size = args['output_size'],
         agg_size=args['agg_size'],
-        loss = model.OCSoftmax(
+        loss = model.EOCS_EMA(
             args['output_size'], r_real=args['r_real'],
-            r_fake=args['r_fake'], alpha=args['alpha'], class_weight=class_weight),
+            r_fake=args['r_fake'], alpha=args['alpha'], class_weight=class_weight,
+            K=args['ema_k'], beta=args['ema_beta'], assignment=args['ema_assign'], tau=args['ema_tau']
+        ),
         loss_bpl = model.BPL(alpha=args['alpha_cl'])
         ).to(args['device'])
     trainer.classifier = nn.SyncBatchNorm.convert_sync_batchnorm(trainer.classifier)

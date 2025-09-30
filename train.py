@@ -122,27 +122,30 @@ class ModelTrainer:
 
                 # feed forward
                 if train_plm:
-                    x = self.plm(x, output_hidden_states=True).hidden_states
-                    x_short = self.plm(x_short, output_hidden_states=True).hidden_states
+                    x_h = self.plm(x, output_hidden_states=True).hidden_states
+                    x_hs = self.plm(x_short, output_hidden_states=True).hidden_states
                 else:
                     with torch.set_grad_enabled(False):
-                        x = self.plm(x, output_hidden_states=True).hidden_states
-                        x_short = self.plm(x_short, output_hidden_states=True).hidden_states
+                        x_h = self.plm(x, output_hidden_states=True).hidden_states
+                        x_hs = self.plm(x_short, output_hidden_states=True).hidden_states
                 
                 ###################################### 
                 self.optimizer.zero_grad()
-                for name, param in self.classifier.named_parameters():
-                    param.requires_grad = False if name == "module.loss.weight" else True
-                loss1, _  = self.classifier(torch.stack(x, dim=1), x_short=torch.stack(x_short, dim=1), label=labels, bona_size=bona_size)
+                # forward classifier and get embeddings for EMA update
+                loss1, _ , emb = self.classifier(torch.stack(x_h, dim=1), x_short=torch.stack(x_hs, dim=1), label=labels, bona_size=bona_size, return_embed=True)
+                # optional proto-pull on bona-fide slice if enabled and using EMA loss
+                proto_pull_w = self.args.get('proto_pull_w', 0.0)
+                if proto_pull_w > 0 and hasattr(self.classifier.module.loss, 'proto_pull'):
+                    emb_bona = emb[:bona_size, :]
+                    loss_proto = self.classifier.module.loss.proto_pull(emb_bona, use_soft=(self.args.get('ema_assign','hard')=='soft'))
+                    loss1 = loss1 + proto_pull_w * loss_proto
                 loss1.backward()
                 self.optimizer.step()
-
-                self.optimizer.zero_grad()
-                for name, param in self.classifier.named_parameters():
-                    param.requires_grad = True if name == "module.loss.weight" else False   
-                loss2, _  = self.classifier(torch.stack(x, dim=1)[:bona_size, :, :, :], label=labels[:bona_size])
-                loss2.backward()
-                self.optimizer.step()
+                
+                # EMA prototype update using current bona-fide embeddings (no grad). Only rank 0 updates and broadcasts via DDP buffers implicitly.
+                if hasattr(self.classifier.module.loss, 'update_prototypes') and bona_size > 0 and dist.get_rank() == 0:
+                    with torch.no_grad():
+                        self.classifier.module.loss.update_prototypes(emb[:bona_size, :].detach())
                 ###################################### 
                 
 
@@ -152,14 +155,14 @@ class ModelTrainer:
                 # log
                 if self.args['flag_parent']:
                     count += 1
-                    loss_total = loss_total + loss1.item() + loss2.item()
+                    loss_total = loss_total + loss1.item()
                     if len(self.train_loader_bona) * 0.1 <= count:
                         self.logger.log_metric('Loss', loss_total / count)
                         count = 0
                         loss_total = 0
                 
                     # pbar
-                    desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | loss1:{loss1.item():.3f} | loss2: {loss2.item():.3f} '
+                    desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | loss:{loss1.item():.3f} '
                     pbar.set_description(desc)
                     pbar.update(1)
             if self.lr_step == 'epoch':
