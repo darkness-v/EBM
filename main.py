@@ -155,9 +155,6 @@ def run(process_id, args, experiment_args):
 if __name__ == '__main__':
     # get arguments
     args, system_args, experiment_args = arguments.get_args()
-    
-    parser = argparse.ArgumentParser()
-    parser_args = parser.parse_args()
 
     # set reproducible
     random.seed(args['rand_seed'])

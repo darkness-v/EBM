@@ -80,7 +80,7 @@ class ModelTrainer:
         loss_total = 0
         loader_bona = iter(self.train_loader_bona)
         loader_spoof = iter(self.train_loader_spoof)
-        if len(loader_bona) < len(loader_spoof):
+        if len(self.train_loader_bona) < len(self.train_loader_spoof):
             big_loader = self.train_loader_spoof
             small_loader_iter = loader_bona
             small = 'bona'
