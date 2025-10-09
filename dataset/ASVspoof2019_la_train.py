@@ -7,7 +7,7 @@ class Item:
     speaker: str
     label: int
 
-@dataclass
+@dataclass # init, repr, eq
 class Trial:
     path: str
     speaker: str

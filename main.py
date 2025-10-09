@@ -69,10 +69,11 @@ def run(process_id, args, experiment_args):
         train_db_19la = ASVspoof2019_LA_Train(args['path_19LA'])
         test_db_19la = ASVspoof2019_LA_Eval(args['path_19LA'])
         test_db_21la = ASVspoof2021_LA_Eval(args['path_21LA'])
-        test_db_21df = ASVspoof2021_DF_Eval(args['path_21DF'])
+        # test_db_21df = ASVspoof2021_DF_Eval(args['path_21DF'])
         train_set = []
         train_set.extend(train_db_19la.train_set)
-        test_set = {'19LA':test_db_19la, '21LA':test_db_21la, '21DF':test_db_21df}
+        test_set = {'19LA':test_db_19la, '21LA':test_db_21la}
+        # test_set = {'19LA':test_db_19la, '21LA':test_db_21la, '21DF':test_db_21df}
 
         # set class weight
         class_weight = [1, 1]
@@ -84,7 +85,7 @@ def run(process_id, args, experiment_args):
         
         # Data loader
         trainer.train_loader_bona, trainer.sampler_bona, trainer.train_loader_spoof, trainer.sampler_spoof, \
-            trainer.val_loader, trainer.eval_loader = data_loaders.get_loaders(args, train_set, train_db_19la.dev_set, test_set)
+            trainer.val_loader, trainer.sampler_val, trainer.eval_loader = data_loaders.get_loaders(args, train_set, train_db_19la.dev_set, test_set)
         trainer.num_val = len(train_db_19la.dev_set) 
 
     # Data augmentation

@@ -76,18 +76,18 @@ def get_loaders(args, train_db, val_db, eval_db):
         pin_memory=False,
     )
 
-    eval_set_21df = EnrollmentSet(args, eval_db['21DF'].trials)
-    eval_sampler = DistributedSampler(eval_set_21df, shuffle=False)
-    eval_loader['21DF'] = DataLoader(
-        eval_set_21df,
-        num_workers=args['num_workers'],
-        batch_size=args['batch_size'] // args['num_seg'],
-        sampler=eval_sampler,
-        pin_memory=False,
-    )
+    # eval_set_21df = EnrollmentSet(args, eval_db['21DF'].trials)
+    # eval_sampler = DistributedSampler(eval_set_21df, shuffle=False)
+    # eval_loader['21DF'] = DataLoader(
+    #     eval_set_21df,
+    #     num_workers=args['num_workers'],
+    #     batch_size=args['batch_size'] // args['num_seg'],
+    #     sampler=eval_sampler,
+    #     pin_memory=False,
+    # )
 
     return train_loader_bona, train_sampler_bona, train_loader_spoof, train_sampler_spoof, \
-           val_loader, eval_loader
+           val_loader, val_sampler, eval_loader
 
 class TrainSet(Dataset):
     def __init__(self, args, items):

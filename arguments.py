@@ -62,8 +62,8 @@ def get_args():
         'use_class_weight'  : True,
 
         # EMA prototype settings
-        'ema_k'             : 1,     # number of bona-fide prototypes
-        'ema_beta'          : 0.995, # EMA momentum
+        'ema_k'             : 4,     # number of bona-fide prototypes
+        'ema_beta'          : 0.999, # EMA momentum
         'ema_assign'        : 'hard',# 'hard' or 'soft'
         'ema_tau'           : 10.0,  # temperature for soft assignment
         'proto_pull_w'      : 0.0,   # weight for prototype pull regularizer

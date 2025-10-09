@@ -26,11 +26,14 @@ class ModelTrainer:
     train_loader_bona = None
     sampler_spoof = None
     train_loader_spoof = None
+    val_loader = None
     eval_loader = None
+    sampler_val = None
     num_val = None
     threshold = None
     lr_step = None
-    
+    best_validation_loss = 100
+
     def run(self):
         self.best_eer_19la = 100
         self.best_eer_21la = 100
@@ -44,13 +47,10 @@ class ModelTrainer:
         for epoch in range(1, self.args['epoch'] + 1):
             self.train(epoch)
             self._synchronize()
-            self.evaluation(epoch)
+            self.validation(epoch)
             self._synchronize()
-            if 15 <= epoch and epoch % 5 == 0:
-                self.evaluation(epoch)
-                self._synchronize()
-            if self.end:
-                break
+        
+        self.evaluation(epoch, final=True, eval_only=False)
         
 
     def train(self, epoch):
@@ -58,12 +58,12 @@ class ModelTrainer:
         if epoch <= self.args['T_0']:
             self.plm.eval()
             for param in self.plm.parameters():
-                param.require_grad = False
+                param.requires_grad = False
             train_plm = False
         else:
             self.plm.train()
             for param in self.plm.parameters():
-                param.require_grad = True
+                param.requires_grad = True
             train_plm = True
         self.classifier.train()
         self.sampler_bona.set_epoch(epoch)
@@ -90,11 +90,9 @@ class ModelTrainer:
             small = 'spoof'
         with tqdm(total=len(big_loader), ncols=90) as pbar:
             for i, (x_a, x_a_short, labels_a) in enumerate(big_loader):
-                if i > 20:
-                    break
                 try:
                     x_b, x_b_short, labels_b = next(small_loader_iter)
-                except:
+                except StopIteration:
                     if small == 'bona': small_loader_iter = iter(self.train_loader_bona)
                     elif small == 'spoof': small_loader_iter = iter(self.train_loader_spoof)
                     x_b, x_b_short, labels_b = next(small_loader_iter)
@@ -168,6 +166,51 @@ class ModelTrainer:
             if self.lr_step == 'epoch':
                 self.lr_scheduler.step()
 
+    def validation(self, epoch):
+        self.plm.eval()
+        self.classifier.eval()
+        self.sampler_val.set_epoch(epoch)
+
+        # val
+        count = 0
+        loss_total = 0
+        loss_total_all = 0  # Track full validation loss separately
+        num_batches = 0
+        with tqdm(total=len(self.val_loader), ncols=90) as pbar, torch.set_grad_enabled(False):
+            for x, _, labels in self.val_loader:
+                # to GPU
+                x = x.to(torch.float32).to(self.args['device'], non_blocking=True)
+                labels = labels.to(self.args['device'])
+
+                # feed forward
+                x = self.plm(x, output_hidden_states=True).hidden_states
+                loss, _  = self.classifier(torch.stack(x, dim=1), label=labels)
+                
+                # Accumulate full validation loss
+                loss_total_all += loss.item()
+                num_batches += 1
+                
+                # log
+                if self.args['flag_parent']:
+                    count += 1
+                    loss_total = loss_total + loss.item()
+                    if len(self.val_loader) * 0.1 <= count:
+                        self.logger.log_metric('Val_Loss', loss_total / count)
+                        count = 0
+                        loss_total = 0
+                
+                    # pbar
+                    desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | val_loss:{loss.item():.3f} '
+                    pbar.set_description(desc)
+                    pbar.update(1)
+        
+        # Calculate average validation loss over all batches
+        avg_val_loss = loss_total_all / num_batches
+        if self.best_validation_loss > avg_val_loss:
+            self.best_validation_loss = avg_val_loss
+            self.cnt_val = 0
+            self.save_best_model(epoch, append=False, option=None)
+        self._synchronize()
 
     def evaluation(self, epoch, final=False, avg=False, eval_only=False):
         if final:
@@ -183,8 +226,8 @@ class ModelTrainer:
         eer_21la, _, _, _ = self.test('21LA', epoch)
         print(f"21LA EER: {eer_21la}")
      
-        eer_21df, _, _, _ = self.test('21DF', epoch)
-        print(f"21DF EER: {eer_21df}")
+        # eer_21df, _, _, _ = self.test('21DF', epoch)
+        # print(f"21DF EER: {eer_21df}")
         
         if not eval_only:
             self.cnt_eval += 1
@@ -194,10 +237,10 @@ class ModelTrainer:
             if eer_21la < self.best_eer_21la:
                 self.best_eer_21la = eer_21la
                 self.cnt_eval = 0
-            if eer_21df < self.best_eer_21df:
-                self.best_eer_21df = eer_21df
-                self.cnt_eval = 0
-            self.save_best_model(epoch, append=False, option='21df')
+            # if eer_21df < self.best_eer_21df:
+            #     self.best_eer_21df = eer_21df
+            #     self.cnt_eval = 0
+            self.save_best_model(epoch, append=False, option='21la')
        
 
     def save_best_model(self, epoch=0, append=False, option='19pa'):  
@@ -209,9 +252,9 @@ class ModelTrainer:
         elif option == '21la':
             if self.args['flag_parent']:
                 self.logger.save_model(f'BestCLS_{epoch}_21LA', self.best_classifier)
-        elif option == '21df':
-            if self.args['flag_parent']:
-                self.logger.save_model(f'BestCLS_{epoch}_21DF', self.best_classifier)
+        # elif option == '21df':
+        #     if self.args['flag_parent']:
+        #         self.logger.save_model(f'BestCLS_{epoch}_21DF', self.best_classifier)
         
 
     def test(self, phase, epoch):
