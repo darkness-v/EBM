@@ -35,7 +35,7 @@ def get_args():
 
         # experiment
         'attack_type'       : 'LA', 
-        'epoch'             : 150,
+        'epoch'             : 4,
         'batch_size'        : 40,
         'rand_seed'         : 1,
         'ratio_bona'        : 0.1,
@@ -78,7 +78,7 @@ def get_args():
         'lr'                : 1e-6,
         'lr_min'            : 1e-6,
         'weight_decay'      : 0.0001,
-        'T_0'               : 150,
+        'T_0'               : 4,
         'T_mult'            : 1,
     }
 

@@ -45,9 +45,9 @@ class ModelTrainer:
         self.end = False
 
         for epoch in range(1, self.args['epoch'] + 1):
+            self.validation(epoch)
             self.train(epoch)
             self._synchronize()
-            self.validation(epoch)
             self._synchronize()
         
         self.evaluation(epoch, final=True, eval_only=False)
@@ -160,8 +160,8 @@ class ModelTrainer:
                         loss_total = 0
                 
                     # pbar
-                    desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | loss:{loss1.item():.3f} '
-                    pbar.set_description(desc)
+                    # desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | loss:{loss1.item():.3f} '
+                    # pbar.set_description(desc)
                     pbar.update(1)
                 print(f"Epoch {epoch}, Iteration {i+1}/{len(big_loader)}, Loss: {loss1.item():.4f}")
             if self.lr_step == 'epoch':
@@ -201,8 +201,8 @@ class ModelTrainer:
                         loss_total = 0
                 
                     # pbar
-                    desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | val_loss:{loss.item():.3f} '
-                    pbar.set_description(desc)
+                    # desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | val_loss:{loss.item():.3f} '
+                    # pbar.set_description(desc)
                     pbar.update(1)
                 print(f"Epoch {epoch}, Validation Iteration {count}/{len(self.val_loader)}, Loss: {loss.item():.4f}")
         # Calculate average validation loss over all batches
