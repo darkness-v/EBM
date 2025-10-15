@@ -28,7 +28,7 @@ class ASVspoof2019_LA_Train:
             label = 1 if strI[4].replace('\n', '') == 'bonafide' else 0
             if label == 0:
                 item = Item(
-                    path=os.path.join(path, f'LA/ASVspoof2019_LA_train/vocoder/hifi_gan/flac', f'{strI[1]}.flac'), 
+                    path=os.path.join(path, f'LA/ASVspoof2019_LA_train/flac', f'{strI[1]}.flac'), 
                     speaker=strI[0], 
                     label = 0)
                 self.class_weight[0] += 1

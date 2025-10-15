@@ -163,6 +163,7 @@ class ModelTrainer:
                     desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | loss:{loss1.item():.3f} '
                     pbar.set_description(desc)
                     pbar.update(1)
+                print(f"Epoch {epoch}, Iteration {i+1}/{len(big_loader)}, Loss: {loss1.item():.4f}")
             if self.lr_step == 'epoch':
                 self.lr_scheduler.step()
 
@@ -203,9 +204,10 @@ class ModelTrainer:
                     desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | val_loss:{loss.item():.3f} '
                     pbar.set_description(desc)
                     pbar.update(1)
-        
+                print(f"Epoch {epoch}, Validation Iteration {count}/{len(self.val_loader)}, Loss: {loss.item():.4f}")
         # Calculate average validation loss over all batches
         avg_val_loss = loss_total_all / num_batches
+        print(f"Epoch {epoch}, Average Validation Loss: {avg_val_loss:.4f}")
         if self.best_validation_loss > avg_val_loss:
             self.best_validation_loss = avg_val_loss
             self.cnt_val = 0
