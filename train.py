@@ -9,7 +9,7 @@ from scipy.interpolate import interp1d
 from utils import all_gather
 import torch.distributed as dist
 import matplotlib.pyplot as plt
-
+import torch.nn.functional as F
 
 class ModelTrainer:
     args = None
@@ -45,12 +45,12 @@ class ModelTrainer:
         self.end = False
 
         for epoch in range(1, self.args['epoch'] + 1):
-            self.validation(epoch)
             self.train(epoch)
             self._synchronize()
+            self.validation(epoch)
             self._synchronize()
         
-        self.evaluation(epoch, final=True, eval_only=False)
+        self.evaluation(0, final=True, eval_only=False)
         
 
     def train(self, epoch):
@@ -88,81 +88,82 @@ class ModelTrainer:
             big_loader = self.train_loader_bona
             small_loader_iter = loader_spoof
             small = 'spoof'
-        with tqdm(total=len(big_loader), ncols=90) as pbar:
-            for i, (x_a, x_a_short, labels_a) in enumerate(big_loader):
-                try:
-                    x_b, x_b_short, labels_b = next(small_loader_iter)
-                except StopIteration:
-                    if small == 'bona': small_loader_iter = iter(self.train_loader_bona)
-                    elif small == 'spoof': small_loader_iter = iter(self.train_loader_spoof)
-                    x_b, x_b_short, labels_b = next(small_loader_iter)
-                
-                if labels_a[0] == 1: #if bonafide
-                    x = torch.cat((x_a, x_b), dim=0)
-                    x_short = torch.cat((x_a_short, x_b_short), dim=0)
-                    labels = torch.cat((labels_a, labels_b), dim=0)
-                    bona_size = x_a.size(0)
-                else:
-                    x = torch.cat((x_b, x_a), dim=0)
-                    x_short = torch.cat((x_b_short, x_a_short), dim=0)
-                    labels = torch.cat((labels_b, labels_a), dim=0)
-                    bona_size = x_b.size(0)
-                
-                # to GPU
-                x = x.to(device=self.args['device'], dtype=torch.float32)
-                x_short = x_short.to(device=self.args['device'], dtype=torch.float32)
-                labels = labels.to(self.args['device'])
+        # with tqdm(total=len(big_loader), ncols=90) as pbar:
+        for i, (x_a, x_a_short, labels_a) in enumerate(big_loader):
+            try:
+                x_b, x_b_short, labels_b = next(small_loader_iter)
+            except StopIteration:
+                if small == 'bona': small_loader_iter = iter(self.train_loader_bona)
+                elif small == 'spoof': small_loader_iter = iter(self.train_loader_spoof)
+                x_b, x_b_short, labels_b = next(small_loader_iter)
+            
+            if labels_a[0] == 1: #if bonafide
+                x = torch.cat((x_a, x_b), dim=0)
+                x_short = torch.cat((x_a_short, x_b_short), dim=0)
+                labels = torch.cat((labels_a, labels_b), dim=0)
+                bona_size = x_a.size(0)
+            else:
+                x = torch.cat((x_b, x_a), dim=0)
+                x_short = torch.cat((x_b_short, x_a_short), dim=0)
+                labels = torch.cat((labels_b, labels_a), dim=0)
+                bona_size = x_b.size(0)
+            
+            # to GPU
+            x = x.to(device=self.args['device'], dtype=torch.float32)
+            x_short = x_short.to(device=self.args['device'], dtype=torch.float32)
+            labels = labels.to(self.args['device'])
 
-                # data augmentation
-                if self.da is not None:
-                    x = self.da(x)
-                    x_short = self.da(x_short)
+            # data augmentation
+            if self.da is not None:
+                x = self.da(x)
+                x_short = self.da(x_short)
 
-                # feed forward
-                if train_plm:
+            # feed forward
+            if train_plm:
+                x_h = self.plm(x, output_hidden_states=True).hidden_states
+                x_hs = self.plm(x_short, output_hidden_states=True).hidden_states
+            else:
+                with torch.set_grad_enabled(False):
                     x_h = self.plm(x, output_hidden_states=True).hidden_states
                     x_hs = self.plm(x_short, output_hidden_states=True).hidden_states
-                else:
-                    with torch.set_grad_enabled(False):
-                        x_h = self.plm(x, output_hidden_states=True).hidden_states
-                        x_hs = self.plm(x_short, output_hidden_states=True).hidden_states
-                
-                ###################################### 
-                self.optimizer.zero_grad()
-                # forward classifier and get embeddings for EMA update
-                loss1, _ , emb = self.classifier(torch.stack(x_h, dim=1), x_short=torch.stack(x_hs, dim=1), label=labels, bona_size=bona_size, return_embed=True)
-                # optional proto-pull on bona-fide slice if enabled and using EMA loss
-                proto_pull_w = self.args.get('proto_pull_w', 0.0)
-                if proto_pull_w > 0 and hasattr(self.classifier.module.loss, 'proto_pull'):
-                    emb_bona = emb[:bona_size, :]
-                    loss_proto = self.classifier.module.loss.proto_pull(emb_bona, use_soft=(self.args.get('ema_assign','hard')=='soft'))
-                    loss1 = loss1 + proto_pull_w * loss_proto
-                loss1.backward()
-                self.optimizer.step()
-                
-                # EMA prototype update using current bona-fide embeddings (no grad). Only rank 0 updates and broadcasts via DDP buffers implicitly.
-                if hasattr(self.classifier.module.loss, 'update_prototypes') and bona_size > 0 and dist.get_rank() == 0:
-                    with torch.no_grad():
-                        self.classifier.module.loss.update_prototypes(emb[:bona_size, :].detach())
-                ###################################### 
-                
+            
+            ###################################### 
+            self.optimizer.zero_grad()
+            # forward classifier and get embeddings for EMA update
+            loss1, _ , emb = self.classifier(torch.stack(x_h, dim=1), x_short=torch.stack(x_hs, dim=1), label=labels, bona_size=bona_size, return_embed=True)
+            # optional proto-pull on bona-fide slice if enabled and using EMA loss
+            proto_pull_w = self.args.get('proto_pull_w', 0.0)
+            if proto_pull_w > 0 and hasattr(self.classifier.module.loss, 'proto_pull'):
+                emb_bona = emb[:bona_size, :]
+                loss_proto = self.classifier.module.loss.proto_pull(emb_bona, use_soft=(self.args.get('ema_assign','hard')=='soft'))
+                loss1 = loss1 + proto_pull_w * loss_proto
+            loss1.backward()
+            self.optimizer.step()
+            
+            # EMA prototype update using current bona-fide embeddings (no grad). Only rank 0 updates and broadcasts via DDP buffers implicitly.
+            if hasattr(self.classifier.module.loss, 'update_prototypes') and bona_size > 0 and dist.get_rank() == 0:
+                with torch.no_grad():
+                    self.classifier.module.loss.update_prototypes(emb[:bona_size, :].detach())
+            ###################################### 
+            
+            print("Prototype initialized:", self.classifier.module.loss.protos.initialized.item())
 
-                if self.lr_step == 'iteration':
-                    self.lr_scheduler.step()
+            if self.lr_step == 'iteration':
+                self.lr_scheduler.step()
 
-                # log
-                if self.args['flag_parent']:
-                    count += 1
-                    loss_total = loss_total + loss1.item()
-                    if len(self.train_loader_bona) * 0.1 <= count:
-                        self.logger.log_metric('Loss', loss_total / count)
-                        count = 0
-                        loss_total = 0
-                
-                    # pbar
-                    # desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | loss:{loss1.item():.3f} '
-                    # pbar.set_description(desc)
-                    pbar.update(1)
+            # log
+            if self.args['flag_parent']:
+                count += 1
+                loss_total = loss_total + loss1.item()
+                if len(self.train_loader_bona) * 0.1 <= count:
+                    self.logger.log_metric('Loss', loss_total / count)
+                    count = 0
+                    loss_total = 0
+            
+                # pbar
+                # desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | loss:{loss1.item():.3f} '
+                # pbar.set_description(desc)
+                # pbar.update(1)
                 print(f"Epoch {epoch}, Iteration {i+1}/{len(big_loader)}, Loss: {loss1.item():.4f}")
             if self.lr_step == 'epoch':
                 self.lr_scheduler.step()
@@ -172,47 +173,66 @@ class ModelTrainer:
         self.classifier.eval()
         self.sampler_val.set_epoch(epoch)
 
-        # val
-        count = 0
-        loss_total = 0
-        loss_total_all = 0  # Track full validation loss separately
+        total_loss_sum = 0.0
+        total_samples = 0
         num_batches = 0
-        with tqdm(total=len(self.val_loader), ncols=90) as pbar, torch.set_grad_enabled(False):
+
+        with torch.no_grad():
             for x, _, labels in self.val_loader:
-                # to GPU
+                # Move to GPU
                 x = x.to(torch.float32).to(self.args['device'], non_blocking=True)
                 labels = labels.to(self.args['device'])
 
-                # feed forward
-                x = self.plm(x, output_hidden_states=True).hidden_states
-                loss, _  = self.classifier(torch.stack(x, dim=1), label=labels)
-                
-                # Accumulate full validation loss
-                loss_total_all += loss.item()
+                # Forward through PLM
+                x_h = self.plm(x, output_hidden_states=True).hidden_states
+
+                # Forward through classifier WITHOUT labels (to get scores)
+                loss, scores = self.classifier(torch.stack(x_h, dim=1), label=None)
+                s = scores.view(-1)  # (B,)
+
+                # Recompute the same EOC-S style loss
+                y = labels
+                r_real = self.classifier.module.loss.r_real
+                r_fake = self.classifier.module.loss.r_fake
+                alpha = self.classifier.module.loss.alpha
+
+                m = torch.where(y == 1,
+                                torch.tensor(r_real, dtype=s.dtype, device=s.device),
+                                torch.tensor(r_fake, dtype=s.dtype, device=s.device))
+                sign = torch.where(y == 1,
+                                -torch.ones_like(s),  # bona fide
+                                torch.ones_like(s))   # spoof
+                batch_losses = F.softplus(alpha * (m - s) * sign)
+
+                batch_loss = batch_losses.mean()
+                batch_size = s.size(0)
+                total_loss_sum += batch_loss.item() * batch_size
+                total_samples += batch_size
                 num_batches += 1
-                
-                # log
-                if self.args['flag_parent']:
-                    count += 1
-                    loss_total = loss_total + loss.item()
-                    if len(self.val_loader) * 0.1 <= count:
-                        self.logger.log_metric('Val_Loss', loss_total / count)
-                        count = 0
-                        loss_total = 0
-                
-                    # pbar
-                    # desc = f'{self.args["name"]}-[{epoch}/{self.args["epoch"]}] | val_loss:{loss.item():.3f} '
-                    # pbar.set_description(desc)
-                    pbar.update(1)
-                print(f"Epoch {epoch}, Validation Iteration {count}/{len(self.val_loader)}, Loss: {loss.item():.4f}")
-        # Calculate average validation loss over all batches
-        avg_val_loss = loss_total_all / num_batches
+
+                print(f"Epoch {epoch}, Validation Iter {num_batches}/{len(self.val_loader)}, "
+                    f"Batch Loss: {batch_loss.item():.4f}")
+
+        # --- Distributed reduction ---
+        if dist.is_available() and dist.is_initialized():
+            t_loss = torch.tensor(total_loss_sum, device=self.args['device'])
+            t_n = torch.tensor(total_samples, device=self.args['device'], dtype=torch.long)
+            dist.all_reduce(t_loss, op=dist.ReduceOp.SUM)
+            dist.all_reduce(t_n, op=dist.ReduceOp.SUM)
+            total_loss_sum = t_loss.item()
+            total_samples = int(t_n.item())
+
+        avg_val_loss = total_loss_sum / total_samples if total_samples > 0 else float("nan")
         print(f"Epoch {epoch}, Average Validation Loss: {avg_val_loss:.4f}")
+
+        # Track and save best model
         if self.best_validation_loss > avg_val_loss:
             self.best_validation_loss = avg_val_loss
             self.cnt_val = 0
             self.save_best_model(epoch, append=False, option=None)
+
         self._synchronize()
+
 
     def evaluation(self, epoch, final=False, avg=False, eval_only=False):
         if final:

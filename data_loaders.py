@@ -208,12 +208,15 @@ class EnrollmentSet(Dataset):
         item = self.items[index]
 
         # read wav
-        audio, _ = sf.read(item.path)
-        if audio.shape[0] < self.crop_size:
-            shortage = self.crop_size - audio.shape[0]
-            audio = np.pad(audio, (0, shortage), 'wrap')
-        else:
-            audio = audio[:self.crop_size]
+        try: 
+            audio, _ = sf.read(item.path)
+            if audio.shape[0] < self.crop_size:
+                shortage = self.crop_size - audio.shape[0]
+                audio = np.pad(audio, (0, shortage), 'wrap')
+            else:
+                audio = audio[:self.crop_size]
 
-        return audio, item.type, item.label
-    
+                return audio, item.type, item.label
+        except Exception as e:
+            print(f"Error reading {item.path}: {e}")
+            return None, None, None

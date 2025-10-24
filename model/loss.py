@@ -180,13 +180,12 @@ class EOCS_EMA(nn.Module):
         self.protos = EMAPrototypeManager(embedding_size, K=K, beta=beta, assignment=assignment, tau=tau, eps=eps)
 
     def forward(self, x: torch.Tensor, label: Optional[torch.Tensor] = None):
-        # Normalize embeddings
         x = F.normalize(x, p=2, dim=1)
         # Score with current prototypes
         _, s, _ = self.protos.score(x)  # s: (B,)
         if label is None:
-            # return scores for evaluation
-            return x.new_zeros(()), s.unsqueeze(1) if s.dim() == 1 else s
+            s = s.unsqueeze(1) if s.dim() == 1 else s
+            return None, s
         # Prepare per-sample margins and signs
         y = label.to(x.dtype)
         m = torch.where(label == 1, torch.tensor(self.r_real, dtype=x.dtype, device=x.device),
@@ -198,6 +197,7 @@ class EOCS_EMA(nn.Module):
             cw = torch.where(label == 1, torch.tensor(self.class_weight[1], dtype=x.dtype, device=x.device),
                              torch.tensor(self.class_weight[0], dtype=x.dtype, device=x.device))
             loss = loss * cw
+        
         return loss.mean(), s
 
     @torch.no_grad()
